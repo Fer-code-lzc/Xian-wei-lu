@@ -1,0 +1,20 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter", "Noto Sans SC", system-ui, sans-serif;
+  --font-serif: "Cormorant Garamond", "Noto Serif SC", serif;
+}
+
+@layer base {
+  body {
+    @apply bg-[#FDFCFB] text-[#2D2D2D];
+  }
+}
+
+.recipe-card-gradient {
+  background: linear-gradient(180deg, rgba(0,0,0,0) 0%, rgba(0,0,0,0.8) 100%);
+}
+
+.glass-panel {
+  @apply bg-white/80 backdrop-blur-md border border-white/20 shadow-sm;
+}

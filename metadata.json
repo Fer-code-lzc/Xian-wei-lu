@@ -1,0 +1,8 @@
+{
+  "name": "鲜味录 - AI智能食谱综合体",
+  "description": "一个专为中国大陆用户设计的AI驱动食谱平台，提供智能食谱搜索、全球食谱百科、美食社区及个性化订阅服务。",
+  "requestFramePermissions": [
+    "camera",
+    "microphone"
+  ]
+}
