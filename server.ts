@@ -43,6 +43,24 @@ db.exec(`
     plan TEXT,
     status TEXT
   );
+
+  CREATE TABLE IF NOT EXISTS saved_recipes (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER,
+    title TEXT,
+    content TEXT,
+    image_url TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY(user_id) REFERENCES users(id)
+  );
+
+  CREATE TABLE IF NOT EXISTS usage_logs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER,
+    action TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY(user_id) REFERENCES users(id)
+  );
 `);
 
 async function startServer() {
@@ -102,6 +120,46 @@ async function startServer() {
     req.session.destroy(() => {
       res.json({ success: true });
     });
+  });
+
+  // --- Usage & Quota ---
+  app.get("/api/usage", (req, res) => {
+    const user = (req.session as any).user;
+    if (!user) return res.json({ count: 0, limit: 3 });
+    
+    const row: any = db.prepare(`
+      SELECT COUNT(*) as count 
+      FROM usage_logs 
+      WHERE user_id = ? AND date(created_at) = date('now')
+    `).get(user.id);
+    
+    res.json({ count: row.count, limit: 3 });
+  });
+
+  app.post("/api/usage/log", (req, res) => {
+    const user = (req.session as any).user;
+    if (user) {
+      db.prepare("INSERT INTO usage_logs (user_id, action) VALUES (?, ?)").run(user.id, "generate_recipe");
+    }
+    res.json({ success: true });
+  });
+
+  // --- Recipe Saving ---
+  app.get("/api/saved-recipes", (req, res) => {
+    const user = (req.session as any).user;
+    if (!user) return res.status(401).json({ error: "请先登录" });
+    
+    const recipes = db.prepare("SELECT * FROM saved_recipes WHERE user_id = ? ORDER BY created_at DESC").all(user.id);
+    res.json(recipes);
+  });
+
+  app.post("/api/saved-recipes", (req, res) => {
+    const user = (req.session as any).user;
+    if (!user) return res.status(401).json({ error: "请先登录" });
+    
+    const { title, content, image_url } = req.body;
+    db.prepare("INSERT INTO saved_recipes (user_id, title, content, image_url) VALUES (?, ?, ?, ?)").run(user.id, title, content, image_url);
+    res.json({ success: true });
   });
 
   // --- Content Routes ---

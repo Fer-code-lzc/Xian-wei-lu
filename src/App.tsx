@@ -147,6 +147,7 @@ const Navbar = ({ activeTab, setActiveTab, user, onLogout, onOpenAuth }: {
       <div className="flex gap-6 w-full md:w-auto justify-around md:justify-end items-center">
         {[
           { id: 'ai', icon: Sparkles, label: 'AI智能' },
+          { id: 'kitchen', icon: Utensils, label: '我的厨房' },
           { id: 'encyclopedia', icon: BookOpen, label: '百科' },
           { id: 'community', icon: Users, label: '社区' },
           { id: 'pro', icon: Crown, label: '会员' },
@@ -182,7 +183,7 @@ const Navbar = ({ activeTab, setActiveTab, user, onLogout, onOpenAuth }: {
   </nav>
 );
 
-const AIRecipe = () => {
+const AIRecipe = ({ user, onOpenAuth }: { user: User | null, onOpenAuth: () => void }) => {
   const [ingredients, setIngredients] = useState('');
   const [seasonings, setSeasonings] = useState('');
   const [method, setMethod] = useState('');
@@ -190,10 +191,26 @@ const AIRecipe = () => {
   const [recipe, setRecipe] = useState<string | null>(null);
   const [recipeImage, setRecipeImage] = useState<string | null>(null);
   const [imageSize, setImageSize] = useState<"1K" | "2K" | "4K">("1K");
+  const [usage, setUsage] = useState({ count: 0, limit: 3 });
+  const [saved, setSaved] = useState(false);
+
+  useEffect(() => {
+    fetch('/api/usage').then(r => r.json()).then(setUsage);
+  }, []);
 
   const handleGenerate = async () => {
     if (!ingredients) return;
+    if (!user) {
+      onOpenAuth();
+      return;
+    }
+    if (usage.count >= usage.limit) {
+      alert("今日免费额度已用完，升级 Pro 解锁无限生成！");
+      return;
+    }
+
     setLoading(true);
+    setSaved(false);
     try {
       const [text, img] = await Promise.all([
         generateRecipe(ingredients, seasonings, method),
@@ -201,6 +218,11 @@ const AIRecipe = () => {
       ]);
       setRecipe(text || "生成失败，请重试");
       setRecipeImage(img);
+      
+      // Log usage
+      await fetch('/api/usage/log', { method: 'POST' });
+      const newUsage = await fetch('/api/usage').then(r => r.json());
+      setUsage(newUsage);
     } catch (e) {
       console.error(e);
     } finally {
@@ -208,12 +230,32 @@ const AIRecipe = () => {
     }
   };
 
+  const handleSave = async () => {
+    if (!recipe || !user) return;
+    try {
+      const title = recipe.split('\n')[0].replace('#', '').trim() || '未命名食谱';
+      await fetch('/api/saved-recipes', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title, content: recipe, image_url: recipeImage })
+      });
+      setSaved(true);
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
   return (
     <div className="space-y-8">
       <div className="bg-white rounded-3xl p-8 shadow-sm border border-orange-50">
-        <h2 className="text-2xl font-serif font-bold mb-6 flex items-center gap-2">
-          <Sparkles className="text-orange-500" /> AI 灵感厨师
-        </h2>
+        <div className="flex justify-between items-start mb-6">
+          <h2 className="text-2xl font-serif font-bold flex items-center gap-2">
+            <Sparkles className="text-orange-500" /> AI 灵感厨师
+          </h2>
+          <div className="bg-orange-50 px-3 py-1 rounded-full text-[10px] font-bold text-orange-600">
+            今日剩余: {usage.limit - usage.count} 次
+          </div>
+        </div>
         <div className="space-y-4">
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">现有食材</label>
@@ -289,11 +331,102 @@ const AIRecipe = () => {
               <div className="absolute inset-0 recipe-card-gradient" />
             </div>
           )}
-          <div className="p-8 prose prose-orange max-w-none">
-            <Markdown>{recipe}</Markdown>
+          <div className="p-8">
+            <div className="flex justify-end mb-4">
+              <button 
+                onClick={handleSave}
+                disabled={saved}
+                className={cn(
+                  "flex items-center gap-2 px-4 py-2 rounded-full text-sm font-bold transition-all",
+                  saved ? "bg-green-50 text-green-600" : "bg-orange-50 text-orange-600 hover:bg-orange-100"
+                )}
+              >
+                <Heart className={cn("w-4 h-4", saved && "fill-current")} />
+                {saved ? '已存入厨房' : '存入我的厨房'}
+              </button>
+            </div>
+            <div className="prose prose-orange max-w-none">
+              <Markdown>{recipe}</Markdown>
+            </div>
           </div>
         </motion.div>
       )}
+    </div>
+  );
+};
+
+const MyKitchen = ({ user, onOpenAuth }: { user: User | null, onOpenAuth: () => void }) => {
+  const [recipes, setRecipes] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [selectedRecipe, setSelectedRecipe] = useState<any | null>(null);
+
+  useEffect(() => {
+    if (user) {
+      fetch('/api/saved-recipes').then(r => r.json()).then(data => {
+        setRecipes(data);
+        setLoading(false);
+      });
+    } else {
+      onOpenAuth();
+    }
+  }, [user]);
+
+  if (!user) return null;
+
+  return (
+    <div className="space-y-6">
+      <h2 className="text-3xl font-serif font-bold">我的厨房</h2>
+      
+      {loading ? (
+        <div className="flex justify-center py-20"><Loader2 className="animate-spin text-orange-500 w-10 h-10" /></div>
+      ) : recipes.length === 0 ? (
+        <div className="text-center py-20 bg-white rounded-3xl border border-dashed border-gray-200">
+          <Utensils className="w-12 h-12 text-gray-300 mx-auto mb-4" />
+          <p className="text-gray-500">厨房空空的，快去让 AI 帮你研发新菜谱吧！</p>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          {recipes.map((r) => (
+            <motion.div 
+              key={r.id}
+              whileHover={{ y: -5 }}
+              onClick={() => setSelectedRecipe(r)}
+              className="bg-white rounded-3xl overflow-hidden shadow-sm border border-gray-100 cursor-pointer"
+            >
+              {r.image_url && <img src={r.image_url} className="h-48 w-full object-cover" referrerPolicy="no-referrer" />}
+              <div className="p-6">
+                <h3 className="font-bold text-lg mb-2">{r.title}</h3>
+                <p className="text-xs text-gray-400">{new Date(r.created_at).toLocaleDateString()}</p>
+              </div>
+            </motion.div>
+          ))}
+        </div>
+      )}
+
+      {/* Recipe Detail Modal */}
+      <AnimatePresence>
+        {selectedRecipe && (
+          <div className="fixed inset-0 bg-black/60 backdrop-blur-md z-[100] flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.9 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.9 }}
+              className="bg-white w-full max-w-3xl max-h-[90vh] rounded-3xl overflow-y-auto relative"
+            >
+              <button 
+                onClick={() => setSelectedRecipe(null)}
+                className="absolute top-6 right-6 p-2 bg-white/80 backdrop-blur rounded-full shadow-lg z-10"
+              >
+                <X className="w-6 h-6" />
+              </button>
+              {selectedRecipe.image_url && <img src={selectedRecipe.image_url} className="w-full h-64 object-cover" referrerPolicy="no-referrer" />}
+              <div className="p-8 prose prose-orange max-w-none">
+                <Markdown>{selectedRecipe.content}</Markdown>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   );
 };
@@ -599,7 +732,8 @@ export default function App() {
             exit={{ opacity: 0, x: -10 }}
             transition={{ duration: 0.2 }}
           >
-            {activeTab === 'ai' && <AIRecipe />}
+            {activeTab === 'ai' && <AIRecipe user={user} onOpenAuth={() => setShowAuth(true)} />}
+            {activeTab === 'kitchen' && <MyKitchen user={user} onOpenAuth={() => setShowAuth(true)} />}
             {activeTab === 'encyclopedia' && <Encyclopedia />}
             {activeTab === 'community' && <Community user={user} onOpenAuth={() => setShowAuth(true)} />}
             {activeTab === 'pro' && <Subscription />}
