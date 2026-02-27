@@ -4,6 +4,8 @@ import Database from "better-sqlite3";
 import path from "path";
 import { fileURLToPath } from "url";
 import fs from "fs";
+import bcrypt from "bcrypt";
+import session from "express-session";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -18,12 +20,21 @@ const db = new Database(path.join(dataDir, "xianweilu.db"));
 
 // Initialize database
 db.exec(`
+  CREATE TABLE IF NOT EXISTS users (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    username TEXT UNIQUE,
+    password TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+
   CREATE TABLE IF NOT EXISTS posts (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER,
     username TEXT,
     content TEXT,
     image_url TEXT,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY(user_id) REFERENCES users(id)
   );
 
   CREATE TABLE IF NOT EXISTS subscriptions (
@@ -37,17 +48,74 @@ db.exec(`
 async function startServer() {
   const app = express();
   app.use(express.json());
+  
+  // Session configuration for iframe compatibility
+  app.use(session({
+    secret: process.env.SESSION_SECRET || "xianweilu-secret-key",
+    resave: false,
+    saveUninitialized: false,
+    cookie: {
+      secure: true,      // Required for SameSite=None
+      sameSite: 'none',  // Required for cross-origin iframe
+      httpOnly: true,
+      maxAge: 24 * 60 * 60 * 1000 // 24 hours
+    }
+  }));
+
   const PORT = process.env.PORT || 3000;
 
-  // API Routes
+  // --- Auth Routes ---
+  app.post("/api/register", async (req, res) => {
+    const { username, password } = req.body;
+    try {
+      const hashedPassword = await bcrypt.hash(password, 10);
+      const info = db.prepare("INSERT INTO users (username, password) VALUES (?, ?)").run(username, hashedPassword);
+      const user = { id: info.lastInsertRowid, username };
+      (req.session as any).user = user;
+      res.json({ success: true, user });
+    } catch (error: any) {
+      if (error.code === 'SQLITE_CONSTRAINT') {
+        res.status(400).json({ error: "用户名已存在" });
+      } else {
+        res.status(500).json({ error: "注册失败" });
+      }
+    }
+  });
+
+  app.post("/api/login", async (req, res) => {
+    const { username, password } = req.body;
+    const user: any = db.prepare("SELECT * FROM users WHERE username = ?").get(username);
+    if (user && await bcrypt.compare(password, user.password)) {
+      const sessionUser = { id: user.id, username: user.username };
+      (req.session as any).user = sessionUser;
+      res.json({ success: true, user: sessionUser });
+    } else {
+      res.status(401).json({ error: "用户名或密码错误" });
+    }
+  });
+
+  app.get("/api/me", (req, res) => {
+    res.json((req.session as any).user || null);
+  });
+
+  app.post("/api/logout", (req, res) => {
+    req.session.destroy(() => {
+      res.json({ success: true });
+    });
+  });
+
+  // --- Content Routes ---
   app.get("/api/posts", (req, res) => {
     const posts = db.prepare("SELECT * FROM posts ORDER BY created_at DESC LIMIT 20").all();
     res.json(posts);
   });
 
   app.post("/api/posts", (req, res) => {
-    const { username, content, image_url } = req.body;
-    const info = db.prepare("INSERT INTO posts (username, content, image_url) VALUES (?, ?, ?)").run(username, content, image_url);
+    const user = (req.session as any).user;
+    if (!user) return res.status(401).json({ error: "请先登录" });
+    
+    const { content, image_url } = req.body;
+    const info = db.prepare("INSERT INTO posts (user_id, username, content, image_url) VALUES (?, ?, ?, ?)").run(user.id, user.username, content, image_url);
     res.json({ id: info.lastInsertRowid });
   });
 

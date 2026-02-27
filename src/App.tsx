@@ -27,6 +27,11 @@ function cn(...inputs: ClassValue[]) {
 }
 
 // --- Types ---
+interface User {
+  id: number;
+  username: string;
+}
+
 interface Post {
   id: number;
   username: string;
@@ -37,14 +42,109 @@ interface Post {
 
 // --- Components ---
 
-const Navbar = ({ activeTab, setActiveTab }: { activeTab: string, setActiveTab: (t: string) => void }) => (
+const AuthModal = ({ onClose, onAuthSuccess }: { onClose: () => void, onAuthSuccess: (user: User) => void }) => {
+  const [isLogin, setIsLogin] = useState(true);
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
+  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError('');
+    setLoading(true);
+    try {
+      const endpoint = isLogin ? '/api/login' : '/api/register';
+      const res = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username, password })
+      });
+      const data = await res.json();
+      if (res.ok) {
+        onAuthSuccess(data.user);
+        onClose();
+      } else {
+        setError(data.error || '操作失败');
+      }
+    } catch (err) {
+      setError('网络错误，请稍后再试');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
+      <motion.div 
+        initial={{ scale: 0.9, opacity: 0 }}
+        animate={{ scale: 1, opacity: 1 }}
+        className="bg-white w-full max-w-md rounded-3xl p-8 shadow-2xl relative"
+      >
+        <button onClick={onClose} className="absolute top-6 right-6 text-gray-400 hover:text-gray-600">
+          <X className="w-6 h-6" />
+        </button>
+        <h3 className="text-2xl font-serif font-bold mb-6 text-center">
+          {isLogin ? '欢迎回来' : '加入鲜味录'}
+        </h3>
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">用户名</label>
+            <input
+              type="text"
+              required
+              className="w-full rounded-xl border-gray-200 bg-gray-50 p-4 focus:ring-orange-500"
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">密码</label>
+            <input
+              type="password"
+              required
+              className="w-full rounded-xl border-gray-200 bg-gray-50 p-4 focus:ring-orange-500"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+            />
+          </div>
+          {error && <p className="text-red-500 text-sm">{error}</p>}
+          <button
+            type="submit"
+            disabled={loading}
+            className="w-full bg-orange-600 text-white py-4 rounded-xl font-bold hover:bg-orange-700 transition-colors disabled:opacity-50"
+          >
+            {loading ? '请稍候...' : (isLogin ? '登录' : '注册')}
+          </button>
+        </form>
+        <p className="mt-6 text-center text-sm text-gray-500">
+          {isLogin ? '还没有账号？' : '已有账号？'}
+          <button 
+            onClick={() => setIsLogin(!isLogin)}
+            className="text-orange-600 font-bold ml-1"
+          >
+            {isLogin ? '立即注册' : '立即登录'}
+          </button>
+        </p>
+      </motion.div>
+    </div>
+  );
+};
+
+const Navbar = ({ activeTab, setActiveTab, user, onLogout, onOpenAuth }: { 
+  activeTab: string, 
+  setActiveTab: (t: string) => void,
+  user: User | null,
+  onLogout: () => void,
+  onOpenAuth: () => void
+}) => (
   <nav className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-100 px-6 py-3 z-50 md:top-0 md:bottom-auto md:border-b md:border-t-0">
     <div className="max-w-4xl mx-auto flex justify-between items-center">
       <div className="hidden md:flex items-center gap-2 font-serif text-2xl font-bold text-orange-600">
         <ChefHat className="w-8 h-8" />
         <span>鲜味录</span>
       </div>
-      <div className="flex gap-8 w-full md:w-auto justify-around md:justify-end">
+      <div className="flex gap-6 w-full md:w-auto justify-around md:justify-end items-center">
         {[
           { id: 'ai', icon: Sparkles, label: 'AI智能' },
           { id: 'encyclopedia', icon: BookOpen, label: '百科' },
@@ -63,6 +163,20 @@ const Navbar = ({ activeTab, setActiveTab }: { activeTab: string, setActiveTab: 
             <span className="text-[10px] md:text-sm font-medium">{item.label}</span>
           </button>
         ))}
+        <div className="h-8 w-px bg-gray-100 hidden md:block mx-2" />
+        {user ? (
+          <div className="hidden md:flex items-center gap-3">
+            <span className="text-sm font-medium text-gray-600">你好, {user.username}</span>
+            <button onClick={onLogout} className="text-xs text-gray-400 hover:text-gray-600">退出</button>
+          </div>
+        ) : (
+          <button 
+            onClick={onOpenAuth}
+            className="hidden md:flex items-center gap-2 bg-orange-50 text-orange-600 px-4 py-2 rounded-full text-sm font-bold hover:bg-orange-100 transition-colors"
+          >
+            登录
+          </button>
+        )}
       </div>
     </div>
   </nav>
@@ -255,7 +369,7 @@ const Encyclopedia = () => {
   );
 };
 
-const Community = () => {
+const Community = ({ user, onOpenAuth }: { user: User | null, onOpenAuth: () => void }) => {
   const [posts, setPosts] = useState<Post[]>([]);
   const [showAdd, setShowAdd] = useState(false);
   const [newContent, setNewContent] = useState('');
@@ -267,12 +381,16 @@ const Community = () => {
 
   const handlePost = async () => {
     if (!newContent) return;
+    if (!user) {
+      onOpenAuth();
+      return;
+    }
     setLoading(true);
     try {
       await fetch('/api/posts', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username: '美食家', content: newContent })
+        body: JSON.stringify({ content: newContent })
       });
       const updated = await fetch('/api/posts').then(r => r.json());
       setPosts(updated);
@@ -290,7 +408,7 @@ const Community = () => {
       <div className="flex justify-between items-center">
         <h2 className="text-2xl font-serif font-bold">食客社区</h2>
         <button 
-          onClick={() => setShowAdd(true)}
+          onClick={() => user ? setShowAdd(true) : onOpenAuth()}
           className="flex items-center gap-2 bg-orange-600 text-white px-4 py-2 rounded-full font-medium hover:bg-orange-700 transition-colors"
         >
           <PlusCircle className="w-5 h-5" /> 分享心得
@@ -450,10 +568,27 @@ const Subscription = () => {
 
 export default function App() {
   const [activeTab, setActiveTab] = useState('ai');
+  const [user, setUser] = useState<User | null>(null);
+  const [showAuth, setShowAuth] = useState(false);
+
+  useEffect(() => {
+    fetch('/api/me').then(r => r.json()).then(setUser);
+  }, []);
+
+  const handleLogout = async () => {
+    await fetch('/api/logout', { method: 'POST' });
+    setUser(null);
+  };
 
   return (
     <div className="min-h-screen pb-24 md:pt-20">
-      <Navbar activeTab={activeTab} setActiveTab={setActiveTab} />
+      <Navbar 
+        activeTab={activeTab} 
+        setActiveTab={setActiveTab} 
+        user={user} 
+        onLogout={handleLogout}
+        onOpenAuth={() => setShowAuth(true)}
+      />
       
       <main className="max-w-4xl mx-auto px-6 py-8">
         <AnimatePresence mode="wait">
@@ -466,11 +601,13 @@ export default function App() {
           >
             {activeTab === 'ai' && <AIRecipe />}
             {activeTab === 'encyclopedia' && <Encyclopedia />}
-            {activeTab === 'community' && <Community />}
+            {activeTab === 'community' && <Community user={user} onOpenAuth={() => setShowAuth(true)} />}
             {activeTab === 'pro' && <Subscription />}
           </motion.div>
         </AnimatePresence>
       </main>
+
+      {showAuth && <AuthModal onClose={() => setShowAuth(false)} onAuthSuccess={setUser} />}
 
       {/* Floating Ad / Recommendation (Monetization) */}
       {activeTab !== 'pro' && (
