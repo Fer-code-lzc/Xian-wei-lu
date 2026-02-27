@@ -2,9 +2,20 @@ import { GoogleGenAI, Type } from "@google/genai";
 
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || "" });
 
+const SAFETY_SETTINGS = [
+  { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_NONE" },
+  { category: "HARM_CATEGORY_HATE_SPEECH", threshold: "BLOCK_NONE" },
+  { category: "HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold: "BLOCK_NONE" },
+  { category: "HARM_CATEGORY_DANGEROUS_CONTENT", threshold: "BLOCK_NONE" },
+];
+
 export const generateRecipe = async (ingredients: string, seasonings: string, method: string) => {
   try {
-    const model = "gemini-3-flash-preview";
+    if (!process.env.GEMINI_API_KEY) {
+      return "错误：未检测到 API 密钥。请在 Railway 环境变量中设置 GEMINI_API_KEY 并重新部署。";
+    }
+
+    const model = "gemini-2.5-flash";
     const prompt = `你是一个米其林三星大厨。请根据以下信息生成一个详细且好吃的食谱。
     食材: ${ingredients}
     调味料: ${seasonings}
@@ -20,18 +31,26 @@ export const generateRecipe = async (ingredients: string, seasonings: string, me
     const response = await ai.models.generateContent({
       model,
       contents: [{ parts: [{ text: prompt }] }],
+      config: {
+        safetySettings: SAFETY_SETTINGS as any
+      }
     });
 
     return response.text || "抱歉，暂时无法生成食谱。";
-  } catch (error) {
+  } catch (error: any) {
     console.error("Recipe generation error:", error);
-    return "生成食谱时发生错误，请稍后再试。";
+    if (error?.message?.includes("API_KEY_INVALID")) {
+      return "错误：API 密钥无效。请检查您的 Google AI Studio 密钥。";
+    }
+    return `生成食谱时发生错误: ${error?.message || "未知错误"}。请稍后再试。`;
   }
 };
 
 export const searchEncyclopedia = async (query: string) => {
   try {
-    const model = "gemini-3-flash-preview";
+    if (!process.env.GEMINI_API_KEY) return "未检测到 API 密钥。";
+    
+    const model = "gemini-2.5-flash";
     const prompt = `你是一个食谱百科全书。请搜索并解释关于 "${query}" 的食谱或烹饪知识。
     如果是具体菜名，请提供经典做法。如果是食材，请提供挑选和处理建议。
     请用专业、亲切的语气回答。`;
@@ -39,12 +58,15 @@ export const searchEncyclopedia = async (query: string) => {
     const response = await ai.models.generateContent({
       model,
       contents: [{ parts: [{ text: prompt }] }],
+      config: {
+        safetySettings: SAFETY_SETTINGS as any
+      }
     });
 
     return response.text || "未找到相关百科内容。";
-  } catch (error) {
+  } catch (error: any) {
     console.error("Encyclopedia search error:", error);
-    return "搜索百科时发生错误。";
+    return "搜索百科时发生错误：" + (error?.message || "");
   }
 };
 
@@ -64,6 +86,7 @@ export const generateFoodImage = async (prompt: string, size: "1K" | "2K" | "4K"
         imageConfig: {
           aspectRatio: "1:1"
         },
+        safetySettings: SAFETY_SETTINGS as any
       },
     });
 
